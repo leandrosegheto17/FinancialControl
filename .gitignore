@@ -1,0 +1,26 @@
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# env
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# supabase
+supabase/.branches
+supabase/.temp
+
+# editors / os
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+
+# logs
+npm-debug.log*
+pnpm-debug.log*
+
+# coverage
+coverage/
