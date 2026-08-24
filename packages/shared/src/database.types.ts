@@ -847,6 +847,10 @@ export type Database = {
         Args: { p_credit_card_id: string; p_transaction_date: string }
         Returns: string
       }
+      replicate_budgets: {
+        Args: { p_from_month: string; p_to_month: string }
+        Returns: number
+      }
       resolve_invoice_period: {
         Args: {
           p_closing_day: number

@@ -6,6 +6,7 @@ import {
   deleteBudget,
   getCategorySpend,
   listBudgetsForMonth,
+  replicateBudgets,
   setBudgetPaid,
   updateBudget,
 } from "../api/budgets";
@@ -53,6 +54,14 @@ export function useSetBudgetPaid() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, paid }: { id: string; paid: boolean }) => setBudgetPaid(id, paid),
+    onSuccess: () => invalidateFinancialData(queryClient),
+  });
+}
+
+export function useReplicateBudgets() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ fromMonth, toMonth }: { fromMonth: string; toMonth: string }) => replicateBudgets(fromMonth, toMonth),
     onSuccess: () => invalidateFinancialData(queryClient),
   });
 }

@@ -57,3 +57,12 @@ export async function deleteBudget(id: string): Promise<void> {
   const { error } = await supabase.from("budgets").delete().eq("id", id);
   if (error) throw error;
 }
+
+/** Copies every budget from `fromMonth` into `toMonth`; rows that would
+ *  collide with an existing budget in `toMonth` are skipped. Returns how
+ *  many were actually inserted. */
+export async function replicateBudgets(fromMonth: string, toMonth: string): Promise<number> {
+  const { data, error } = await supabase.rpc("replicate_budgets", { p_from_month: fromMonth, p_to_month: toMonth });
+  if (error) throw error;
+  return data ?? 0;
+}
