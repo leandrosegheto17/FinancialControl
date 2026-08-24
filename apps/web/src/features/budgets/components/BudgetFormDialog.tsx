@@ -1,6 +1,6 @@
 import type { BudgetKind } from "@financial-control/shared";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCategories } from "@/features/categories/hooks/useCategories";
-import { useCreateBudget } from "../hooks/useBudgets";
+import type { BudgetWithSpend } from "../api/budgets";
+import { useCreateBudget, useUpdateBudget } from "../hooks/useBudgets";
 
 const formSchema = z
   .object({
@@ -37,10 +38,22 @@ const formSchema = z
   });
 type FormValues = z.infer<typeof formSchema>;
 
-export function BudgetFormDialog({ periodMonth }: { periodMonth: string }) {
+function defaultsFor(budget?: BudgetWithSpend): FormValues {
+  return {
+    category_id: budget?.category_id ?? "",
+    limit: budget ? budget.limit_cents / 100 : 0,
+    kind: budget?.kind ?? "flexible",
+    description: budget?.description ?? "",
+    due_day: budget?.due_day ?? undefined,
+  };
+}
+
+export function BudgetFormDialog({ periodMonth, budget }: { periodMonth: string; budget?: BudgetWithSpend }) {
   const [open, setOpen] = useState(false);
   const { data: categories } = useCategories();
   const createBudget = useCreateBudget();
+  const updateBudget = useUpdateBudget();
+  const isEdit = Boolean(budget);
 
   const {
     handleSubmit,
@@ -49,24 +62,30 @@ export function BudgetFormDialog({ periodMonth }: { periodMonth: string }) {
     setValue,
     reset,
     formState: { errors, isSubmitting },
-  } = useForm<FormValues>({
-    resolver: zodResolver(formSchema),
-    defaultValues: { category_id: "", limit: 0, kind: "flexible", description: "", due_day: undefined },
-  });
+  } = useForm<FormValues>({ resolver: zodResolver(formSchema), defaultValues: defaultsFor(budget) });
+
+  useEffect(() => {
+    if (open) reset(defaultsFor(budget));
+  }, [open, budget, reset]);
 
   const kind = watch("kind");
   const isFixed = kind === "fixed";
 
   async function onSubmit(values: FormValues) {
-    await createBudget.mutateAsync({
+    const payload = {
       category_id: values.category_id,
-      period_month: periodMonth,
       limit_cents: Math.round(values.limit * 100),
       alert_thresholds: [80, 100],
       kind: values.kind,
       description: isFixed ? (values.description ?? null) : null,
       due_day: isFixed ? (values.due_day ?? null) : null,
-    });
+    };
+
+    if (isEdit && budget) {
+      await updateBudget.mutateAsync({ id: budget.id, input: payload });
+    } else {
+      await createBudget.mutateAsync({ ...payload, period_month: periodMonth });
+    }
     reset();
     setOpen(false);
   }
@@ -74,11 +93,13 @@ export function BudgetFormDialog({ periodMonth }: { periodMonth: string }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button>Novo orçamento</Button>
+        <Button variant={isEdit ? "ghost" : "default"} size={isEdit ? "sm" : "default"}>
+          {isEdit ? "Editar" : "Novo orçamento"}
+        </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Novo orçamento</DialogTitle>
+          <DialogTitle>{isEdit ? "Editar orçamento" : "Novo orçamento"}</DialogTitle>
           <DialogDescription>
             Flexível: teto de gasto com alerta em 80% e 100%. Fixa: conta conhecida (aluguel, assinatura) com
             lembrete de vencimento.

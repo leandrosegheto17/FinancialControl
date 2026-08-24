@@ -10,10 +10,13 @@ import type { QueryClient } from "@tanstack/react-query";
 export const FINANCIAL_IMPACT_KEYS = [
   "accounts",
   "consolidated-balance",
+  "account-balances",
   "monthly-summary",
   "category-breakdown",
+  "income-breakdown",
   "category-spend",
   "budgets",
+  "budget-provision",
   "card-invoices",
   "invoice-transactions",
   "transactions",

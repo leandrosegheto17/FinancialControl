@@ -1,4 +1,4 @@
-import type { Budget, CreateBudgetInput } from "@financial-control/shared";
+import type { Budget, CreateBudgetInput, UpdateBudgetInput } from "@financial-control/shared";
 import { supabase } from "@/lib/supabase/client";
 
 export interface BudgetWithSpend extends Budget {
@@ -37,6 +37,19 @@ export async function createBudget(input: CreateBudgetInput): Promise<void> {
   const { data: userData } = await supabase.auth.getUser();
   if (!userData.user) throw new Error("Not authenticated");
   const { error } = await supabase.from("budgets").insert({ ...input, user_id: userData.user.id });
+  if (error) throw error;
+}
+
+export async function updateBudget(id: string, input: UpdateBudgetInput): Promise<void> {
+  const { error } = await supabase.from("budgets").update(input).eq("id", id);
+  if (error) throw error;
+}
+
+export async function setBudgetPaid(id: string, paid: boolean): Promise<void> {
+  const { error } = await supabase
+    .from("budgets")
+    .update({ paid_at: paid ? new Date().toISOString() : null })
+    .eq("id", id);
   if (error) throw error;
 }
 

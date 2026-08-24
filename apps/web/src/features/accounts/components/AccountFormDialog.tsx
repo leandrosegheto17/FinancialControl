@@ -72,7 +72,7 @@ export function AccountFormDialog({ account }: { account?: Account }) {
     if (isEdit && account) {
       await updateAccount.mutateAsync({
         id: account.id,
-        input: { name: values.name, type: values.type, currency: values.currency },
+        input: { name: values.name, type: values.type, currency: values.currency, initial_balance_cents },
       });
     } else {
       await createAccount.mutateAsync({
@@ -120,12 +120,16 @@ export function AccountFormDialog({ account }: { account?: Account }) {
               </SelectContent>
             </Select>
           </div>
-          {!isEdit && (
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="initialBalance">Saldo inicial (R$)</Label>
-              <Input id="initialBalance" type="number" step="0.01" {...register("initialBalance")} />
-            </div>
-          )}
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="initialBalance">Saldo inicial (R$)</Label>
+            <Input id="initialBalance" type="number" step="0.01" {...register("initialBalance")} />
+            {isEdit && (
+              <p className="text-xs text-muted-foreground">
+                Alterar o saldo inicial ajusta o saldo atual pela mesma diferença, sem afetar os lançamentos já
+                registrados.
+              </p>
+            )}
+          </div>
           <DialogFooter>
             <Button type="submit" disabled={isSubmitting}>
               Salvar

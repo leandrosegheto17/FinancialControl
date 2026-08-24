@@ -45,8 +45,82 @@ export async function getCategoryBreakdown(month: string): Promise<CategoryBreak
     }));
 }
 
-export async function getConsolidatedBalance(): Promise<number> {
-  const { data, error } = await supabase.from("accounts").select("current_balance_cents").eq("is_active", true);
+export interface AccountBalanceRow {
+  id: string;
+  name: string;
+  current_balance_cents: number;
+}
+
+export async function getAccountBalances(): Promise<AccountBalanceRow[]> {
+  const { data, error } = await supabase
+    .from("accounts")
+    .select("id, name, current_balance_cents")
+    .eq("is_active", true)
+    .order("current_balance_cents", { ascending: false });
   if (error) throw error;
-  return (data ?? []).reduce((sum, a) => sum + a.current_balance_cents, 0);
+  return data;
+}
+
+export async function getConsolidatedBalance(): Promise<number> {
+  const rows = await getAccountBalances();
+  return rows.reduce((sum, a) => sum + a.current_balance_cents, 0);
+}
+
+function monthRange(month: string): { start: string; end: string } {
+  const parts = month.split("-");
+  const year = Number(parts[0]);
+  const m = Number(parts[1]);
+  const end = new Date(year, m, 1).toISOString().slice(0, 10);
+  return { start: month, end };
+}
+
+/** Same shape as getCategoryBreakdown (which only covers expenses via the
+ *  v_monthly_summary view) but for income — no equivalent view exists, so
+ *  this groups client-side from a direct query. */
+export async function getIncomeBreakdown(month: string): Promise<CategoryBreakdownRow[]> {
+  const { start, end } = monthRange(month);
+  const { data, error } = await supabase
+    .from("transactions")
+    .select("amount_cents, category_id, categories(name, color)")
+    .eq("kind", "income")
+    .neq("status", "pending")
+    .gte("transaction_date", start)
+    .lt("transaction_date", end);
+  if (error) throw error;
+
+  const totals = new Map<string, CategoryBreakdownRow>();
+  for (const row of data ?? []) {
+    const category = row.categories as { name: string; color: string | null } | null;
+    if (!category) continue;
+    const existing = totals.get(row.category_id);
+    if (existing) {
+      existing.amount_cents += row.amount_cents;
+    } else {
+      totals.set(row.category_id, {
+        category_id: row.category_id,
+        category_name: category.name,
+        category_color: category.color,
+        amount_cents: row.amount_cents,
+      });
+    }
+  }
+  return Array.from(totals.values()).sort((a, b) => b.amount_cents - a.amount_cents);
+}
+
+export interface BudgetProvision {
+  fixed_cents: number;
+  flexible_cents: number;
+  total_cents: number;
+}
+
+/** Worst-case planned spend for the month: every fixed bill paid in full,
+ *  every flexible budget spent up to its 100% limit. */
+export async function getBudgetProvision(month: string): Promise<BudgetProvision> {
+  const { data, error } = await supabase.from("budgets").select("kind, limit_cents").eq("period_month", month);
+  if (error) throw error;
+
+  const fixed_cents = (data ?? []).filter((b) => b.kind === "fixed").reduce((sum, b) => sum + b.limit_cents, 0);
+  const flexible_cents = (data ?? []).filter((b) => b.kind === "flexible").reduce((sum, b) => sum + b.limit_cents, 0);
+
+  return { fixed_cents, flexible_cents, total_cents: fixed_cents + flexible_cents };
 }

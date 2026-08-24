@@ -89,6 +89,7 @@ export type Database = {
           id: string
           kind: Database["public"]["Enums"]["budget_kind"]
           limit_cents: number
+          paid_at: string | null
           period_month: string
           updated_at: string
           user_id: string
@@ -102,6 +103,7 @@ export type Database = {
           id?: string
           kind?: Database["public"]["Enums"]["budget_kind"]
           limit_cents: number
+          paid_at?: string | null
           period_month: string
           updated_at?: string
           user_id: string
@@ -115,6 +117,7 @@ export type Database = {
           id?: string
           kind?: Database["public"]["Enums"]["budget_kind"]
           limit_cents?: number
+          paid_at?: string | null
           period_month?: string
           updated_at?: string
           user_id?: string

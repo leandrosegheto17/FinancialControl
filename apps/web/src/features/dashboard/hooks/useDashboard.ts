@@ -1,5 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { getCategoryBreakdown, getConsolidatedBalance, getMonthlySummary } from "../api/dashboard";
+import {
+  getAccountBalances,
+  getBudgetProvision,
+  getCategoryBreakdown,
+  getConsolidatedBalance,
+  getIncomeBreakdown,
+  getMonthlySummary,
+} from "../api/dashboard";
 
 export function currentMonth(): string {
   const now = new Date();
@@ -14,6 +21,18 @@ export function useCategoryBreakdown(month: string) {
   return useQuery({ queryKey: ["category-breakdown", month], queryFn: () => getCategoryBreakdown(month) });
 }
 
+export function useIncomeBreakdown(month: string) {
+  return useQuery({ queryKey: ["income-breakdown", month], queryFn: () => getIncomeBreakdown(month) });
+}
+
 export function useConsolidatedBalance() {
   return useQuery({ queryKey: ["consolidated-balance"], queryFn: getConsolidatedBalance });
+}
+
+export function useAccountBalances() {
+  return useQuery({ queryKey: ["account-balances"], queryFn: getAccountBalances });
+}
+
+export function useBudgetProvision(month: string) {
+  return useQuery({ queryKey: ["budget-provision", month], queryFn: () => getBudgetProvision(month) });
 }
