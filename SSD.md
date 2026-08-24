@@ -45,6 +45,10 @@ Especificação técnica de solução para o produto descrito em [`PRD.md`](./PR
 
 **Estrutura de repositório**: monorepo pnpm workspaces com `apps/web` (PWA), `packages/shared` (lógica de domínio pura compartilhada entre client e Edge Functions) e `supabase/` (migrations + Edge Functions). Detalhes em `CLAUDE.md`.
 
+> **Nota de implementação (Fases 1–2, desvio deliberado do diagrama acima)**: `recurring-generator`, `invoice-closer` e `budget-alert-checker` (e o novo `check-fixed-bill-alerts`, ver §2.10) **não** foram implementados como Edge Functions — são funções `plpgsql` (`fn_generate_recurring_transactions`, `fn_close_due_invoices`, `fn_check_budget_alerts`, `fn_check_fixed_bill_alerts`) agendadas diretamente via `pg_cron`, sem o hop HTTP por `pg_net`. Todas as quatro são lógica determinística sobre dados já no Postgres, sem chamar provedor externo — o hop HTTP não agregava valor e fazia o `supabase db reset` local depender de `supabase functions serve` estar rodando para o cron funcionar. `webauthn-register`/`webauthn-authenticate` continuam como Edge Functions de verdade (dependem de `@simplewebauthn/server`, adequado para Deno). Detalhe completo no comentário da migration `supabase/migrations/20260824163416_scheduled_functions.sql`.
+>
+> **Hospedagem**: frontend publicado na **Vercel** (projeto `financial-control`, monorepo pnpm configurado via `vercel.json` na raiz — `buildCommand: pnpm --filter web build`, `outputDirectory: apps/web/dist`, rewrite catch-all para `index.html` obrigatório por causa das rotas client-side do React Router). Domínio de produção: `fintech-control-lsm.vercel.app`, registrado como **Domain** do projeto (não apenas alias) — necessário para ficar isento da "Vercel Authentication"/Deployment Protection, que por padrão bloqueia com login da Vercel qualquer URL que não seja um Domain oficial do projeto. Backend no projeto Supabase cloud `financial_control` (staging, ref `szpplwojnfvxuhckkdyc`). Ver `CLAUDE.md` §11 para o passo a passo de deploy.
+
 ---
 
 ## 2. Modelo de dados relacional
@@ -170,9 +174,21 @@ RLS: SELECT permitido se `user_id = auth.uid() OR user_id IS NULL`; INSERT/UPDAT
 | Coluna | Tipo | Notas |
 |---|---|---|
 | id, user_id, category_id | uuid | |
-| period_month | date | ou `is_recurring_monthly bool` |
-| limit_cents | bigint | |
+| period_month | date | primeiro dia do mês; uma linha por mês (sem rollover automático) |
+| limit_cents | bigint | teto (flexível) ou valor da conta (fixa) |
 | alert_thresholds | smallint[] | default `'{80,100}'` |
+| kind | enum | `flexible\|fixed` — default `flexible` |
+| description | text | nullable; **obrigatório quando `kind = 'fixed'`** (ex. "Aluguel", "Internet") |
+| due_day | smallint | nullable, 1–31; **obrigatório quando `kind = 'fixed'`** |
+| paid_at | timestamptz | nullable; marcação manual de "pago" para a conta fixa do período — nunca preenchido automaticamente (nenhuma transação é gerada, ver §2.14) |
+
+`CHECK (kind = 'flexible' OR (description IS NOT NULL AND due_day IS NOT NULL))`.
+
+Índices únicos parciais (substituem o antigo `UNIQUE(user_id, category_id, period_month)`, que impedia mais de uma conta fixa por categoria):
+- `UNIQUE(user_id, category_id, period_month) WHERE kind = 'flexible'` — no máximo um orçamento flexível por categoria/mês.
+- `UNIQUE(user_id, category_id, period_month, description) WHERE kind = 'fixed'` — permite várias contas fixas na mesma categoria (ex. "Internet" e "Netflix" em "Assinaturas"), desde que a descrição seja diferente.
+
+**RPC `replicate_budgets(from_month date, to_month date) returns int`** (`SECURITY INVOKER`, RLS normal via `auth.uid()`): copia todas as linhas de `budgets` de um mês para outro, sem copiar `paid_at`; usa `ON CONFLICT DO NOTHING` para ser seguro de chamar mais de uma vez (itens já existentes no mês de destino são ignorados). Acionado pelo botão manual "Replicar orçamento" na UI — sem cron.
 
 ### 2.11 `goals` (RF07)
 | Coluna | Tipo | Notas |
@@ -210,10 +226,12 @@ RLS: SELECT permitido se `user_id = auth.uid() OR user_id IS NULL`; INSERT/UPDAT
 ### 2.14 Decisões de modelagem
 
 - **Saldo de conta**: `accounts.current_balance_cents` é mantido por trigger `AFTER INSERT/UPDATE/DELETE ON transactions`, ajustando a conta afetada na mesma transação SQL (consistência forte, sem corrida). Alternativa descartada: view calculada via `SUM` a cada leitura — mais simples, mas cara para dashboard com histórico longo.
-- **Recorrência**: `recurring_rules` é um *template*, não gera todas as ocorrências de uma vez. A Edge Function agendada `recurring-generator` roda diariamente (via `pg_cron`) e materializa transações `status='pending'` numa janela deslizante (ex. próximos 60 dias), atualizando `next_run_date`. Evita milhões de linhas para regras "infinitas" e permite editar a regra sem reescrever transações futuras distantes.
+- **Recorrência**: `recurring_rules` é um *template*, não gera todas as ocorrências de uma vez. A função `fn_generate_recurring_transactions` (plpgsql, agendada via `pg_cron` — não Edge Function, ver §1) roda diariamente e materializa transações `status='pending'` numa janela deslizante (ex. próximos 60 dias), atualizando `next_run_date`. Evita milhões de linhas para regras "infinitas" e permite editar a regra sem reescrever transações futuras distantes.
 - **Parcelamento**: `installment_plans` é o "pai"; ao criar, o sistema já materializa todas as N transações-filhas de uma vez (fim conhecido, baixo volume — raramente >24 parcelas). Cada filha carrega `installment_number`/`installments_count` para exibição ("3/12").
-- **Fatura de cartão**: `card_invoices` é criada sob demanda (primeira transação do cartão no período cria a fatura `open`) e fechada pela Edge Function agendada `invoice-closer`, que verifica `closing_day` de cada cartão diariamente. Um trigger em `transactions` recalcula `total_amount_cents` a cada INSERT/UPDATE/DELETE. Transação após o fechamento do mês corrente é automaticamente associada à fatura seguinte — essa regra vive em `packages/shared` e é replicada/testada tanto no client (preview antes de salvar) quanto no banco.
+- **Fatura de cartão**: `card_invoices` é criada sob demanda (primeira transação do cartão no período cria a fatura `open`) e fechada pela função `fn_close_due_invoices` (plpgsql via `pg_cron`, ver §1), que verifica `closing_day` de cada cartão diariamente. Um trigger em `transactions` recalcula `total_amount_cents` a cada INSERT/UPDATE/DELETE. Transação após o fechamento do mês corrente é automaticamente associada à fatura seguinte — essa regra vive em `packages/shared` e é replicada/testada tanto no client (preview antes de salvar) quanto no banco.
 - **Deduplicação de importação**: hash determinístico `(account_id, date, amount_cents, normalized_description)` comparado contra `transactions` existentes; resultado gravado em `import_staging_transactions.duplicate_of_transaction_id` — decisão final **sempre humana**, nunca auto-mesclagem.
+- **Saldo inicial editável**: editar `accounts.initial_balance_cents` depois que a conta já tem transações não pode simplesmente sobrescrever `current_balance_cents` (perderia o efeito das transações já lançadas). Um trigger `BEFORE UPDATE OF initial_balance_cents` desloca `current_balance_cents` pela diferença (`novo − antigo`), preservando o histórico. Testado via SQL direto: conta com saldo inicial 100 e uma despesa de 30 (atual = 70); editar o inicial para 200 resulta em atual = 170.
+- **Conta fixa é lembrete, não lançamento**: marcar um orçamento como `kind = 'fixed'` nunca gera uma `transaction` automaticamente — o usuário continua lançando o pagamento manualmente (ou via cartão). `fn_check_fixed_bill_alerts` roda diariamente e usa o mesmo padrão de dedupe do `fn_check_budget_alerts` (chave `(budget_id, phase)` gravada em `notifications.payload`, `phase ∈ {upcoming, overdue}`): um aviso quando faltam ≤3 dias para o vencimento, outro se o dia passou sem nenhuma `transaction` de despesa na categoria naquele mês. Ambos os avisos são pulados quando `paid_at is not null`.
 
 ---
 
@@ -221,25 +239,26 @@ RLS: SELECT permitido se `user_id = auth.uid() OR user_id IS NULL`; INSERT/UPDAT
 
 | RF | Módulo técnico |
 |---|---|
-| RF01 Contas | `features/accounts` + tabela `accounts` + trigger de saldo |
+| RF01 Contas | `features/accounts` + tabela `accounts` + trigger de saldo + trigger de ajuste ao editar saldo inicial |
 | RF02 Modos de pagamento | `features/payment-methods` + tabela `payment_methods` (constraint condicional com `credit_cards`) |
 | RF03 Categorias | `features/categories` + tabela `categories` (self-FK) + `seed.sql` |
-| RF04 Dashboard | Views/RPC agregadas (`v_monthly_summary`, `v_category_breakdown`) via TanStack Query; gráficos com Recharts/visx |
+| RF04 Dashboard | Views/RPC agregadas (`v_monthly_summary`, `v_category_breakdown`) via TanStack Query; gráficos com Recharts; `features/dashboard`: card de provisionamento (`budgets.limit_cents` fixas + flexíveis) e dialogs de detalhamento por conta/categoria ao clicar nos cards de resumo |
 | RF05 Áudio | Edge Function `audio-transaction-intake`: recebe áudio/transcript, chama STT (fallback servidor) + LLM de extração com lista de categorias/contas do usuário no prompt; grava em `audio_intents`; client exibe confirmação antes de gravar em `transactions` |
-| RF06 Recorrência/Parcelamento | `recurring_rules` + `recurring-generator` (cron); `installment_plans` materializados no insert |
-| RF07 Planejamento/Metas | `budgets` + `budget-alert-checker` → `notifications`; `goals` com progresso via `linked_account_id` ou incremento manual |
+| RF06 Recorrência/Parcelamento | `recurring_rules` + `fn_generate_recurring_transactions` (plpgsql via `pg_cron`, não Edge Function — ver §1); `installment_plans` materializados no insert |
+| RF07 Planejamento/Metas | `budgets` (flexível/fixa, ver §2.10) + `fn_check_budget_alerts`/`fn_check_fixed_bill_alerts` (plpgsql via `pg_cron`) → `notifications`; RPC `replicate_budgets` para o botão "Replicar orçamento"; `goals` com progresso via `linked_account_id` ou incremento manual |
 | RF08a Importação OFX/CSV | Edge Function `import-ofx-csv` (parser + staging) + tela de reconciliação |
 | RF08b OCR | Edge Function `ocr-receipt-intake`: prioriza QR code NFC-e (dado estruturado da SEFAZ), fallback OCR genérico + normalização por LLM; grava em `attachments` |
 | RF08c Open Finance | `openfinance_connections`/`openfinance_account_links` + Edge Functions `openfinance-webhook` e `openfinance-sync` |
-| RF09 Cartões | `credit_cards` + `card_invoices` + `invoice-closer` |
+| RF09 Cartões | `credit_cards` + `card_invoices` + `fn_close_due_invoices` (plpgsql via `pg_cron`, não Edge Function — ver §1) |
 | RF10 Relatórios | Views agregadas + geração client-side (CSV sempre; PDF simples); Edge Function de export para relatórios pesados |
-| RF11 Segurança | Supabase Auth (primário) + WebAuthn (desbloqueio local) + RLS em toda tabela + Vault/pgsodium; `push_subscriptions`/`notifications` + `notifications-dispatcher` |
+| RF11 Segurança | Supabase Auth (primário) + WebAuthn (desbloqueio local, Edge Functions reais) + RLS em toda tabela + Vault/pgsodium; `features/notifications`: sino in-app implementado (canal `in_app`); `push_subscriptions`/`notifications-dispatcher` (push/e-mail) ainda não implementados — Fase 5 |
 
 ---
 
 ## 4. Segurança
 
 - **RLS obrigatório**: toda tabela de usuário tem policy `USING (auth.uid() = user_id)` (SELECT/UPDATE/DELETE) e `WITH CHECK (auth.uid() = user_id)` (INSERT). Tabelas de sistema (`categories` padrão) são somente leitura pública autenticada. Nenhuma tabela pode ficar sem RLS habilitado — validar em CI com query que lista tabelas em `public` sem `rowsecurity = true`.
+- **GRANT explícito além do RLS**: versões recentes da Supabase CLI pararam de auto-expor tabelas/views/funções novas do schema `public` para os roles `anon`/`authenticated` (comportamento `auto_expose_new_tables`, ver `supabase/config.toml`). RLS é a checagem "quais linhas"; GRANT é a checagem "pode tocar na relação". Sem o GRANT, toda chamada do PostgREST falha com **403** mesmo com as policies corretas — bug real encontrado durante a Fase 1. A migration `supabase/migrations/20260824173321_grants.sql` concede `SELECT/INSERT/UPDATE/DELETE`/`EXECUTE` a `authenticated` em todas as tabelas/funções existentes e configura `ALTER DEFAULT PRIVILEGES` para cobrir automaticamente objetos criados depois — ver `CLAUDE.md` §8 para o lembrete operacional.
 - **Criptografia em trânsito**: TLS 1.3 gerenciado pelo Supabase (Postgres, REST, Storage) e pelo host do frontend — requer apenas configuração de HSTS e forçar HTTPS.
 - **Criptografia em repouso**: disco do Postgres gerenciado pelo Supabase (AES-256 no provedor cloud). Para o requisito adicional do RNF de "dados sensíveis", usar **Supabase Vault** (`pgsodium`) apenas para: (a) segredos de Open Finance (`encrypted_credentials_ref`), (b) tokens de terceiros. Dados financeiros comuns (valores, categorias) **não** precisam de criptografia de coluna adicional — RLS + criptografia de disco já atendem; evitar overengineering aqui.
 - **Biometria em PWA**: não existe API nativa de Face ID/Touch ID/Fingerprint em contexto web. A alternativa realista é **WebAuthn** (`navigator.credentials`), que aciona o autenticador de plataforma (Face ID, Touch ID, Windows Hello, fingerprint Android) via navegador.
@@ -253,6 +272,7 @@ RLS: SELECT permitido se `user_id = auth.uid() OR user_id IS NULL`; INSERT/UPDAT
 
 ## 5. Notificações
 
+- **In-app (implementado)**: `features/notifications` — sino no cabeçalho (`NotificationsBell`) com contador de não lidas, painel com histórico (`notifications` ordenadas por `created_at`) e marcação de leitura (`status='read'`, `read_at`). É o único canal ativo hoje; alimentado por `fn_check_budget_alerts` (`type='budget_alert'`) e `fn_check_fixed_bill_alerts` (`type='bill_due'`).
 - **Push**: Web Push API padrão (VAPID) via service worker (`vite-plugin-pwa`). Client assina push (`PushManager.subscribe`) → grava em `push_subscriptions`. Edge Function `notifications-dispatcher` lê `notifications` pendentes com `channel='push'` e envia via biblioteca `web-push` (Deno). Disparo por trigger de banco ou cron.
 - **E-mail**: provedor transacional (Resend/Postmark) chamado pela mesma `notifications-dispatcher` para `channel='email'`. O SMTP do Supabase Auth fica reservado só para e-mails de autenticação (confirmação, reset de senha).
 - **Risco**: Web Push em iOS só funciona com a PWA instalada (iOS 16.4+); usuários que só acessam via aba do navegador não recebem push. Mitigação: fallback para e-mail + notificação in-app sempre disponível.
@@ -269,8 +289,8 @@ RLS: SELECT permitido se `user_id = auth.uid() OR user_id IS NULL`; INSERT/UPDAT
 
 ## 7. Fases sugeridas de implementação
 
-1. **Fase 1 — Núcleo financeiro**: Auth + WebAuthn básico; `accounts`, `payment_methods`, `categories` (+ seed); `transactions` CRUD manual; dashboard com views agregadas simples; RLS baseline em todas as tabelas.
-2. **Fase 2 — Cartões, recorrência e planejamento**: `credit_cards`, `card_invoices` + `invoice-closer`; `recurring_rules` + `recurring-generator`; `installment_plans`; `budgets` + `budget-alert-checker`; `goals`.
+1. **Fase 1 — Núcleo financeiro** ✅ *implementado*: Auth + WebAuthn completo (não só "básico" — inclui PIN fallback com lockout); `accounts` (+ edição de saldo inicial), `payment_methods`, `categories` (+ seed); `transactions` CRUD manual; dashboard com views agregadas + provisionamento do mês + detalhamento por clique; RLS + GRANT em todas as tabelas.
+2. **Fase 2 — Cartões, recorrência e planejamento** ✅ *implementado, com extensões além do escopo original*: `credit_cards`, `card_invoices` + fechamento automático; `recurring_rules` + geração automática; `installment_plans`; `budgets` flexíveis (percentual) **e fixas** (descrição + vencimento + marcação manual de pago + alerta de vencimento) + replicação manual de orçamento entre meses; `goals`. Recorrência/fatura/orçamento agendados como funções `plpgsql`/`pg_cron`, não Edge Functions (ver §1). Notificações têm canal in-app funcional (sino), push/e-mail continuam na Fase 5.
 3. **Fase 3 — Relatórios**: evolução patrimonial, comparativo mensal, exportação PDF/CSV client-side.
 4. **Fase 4 — Automação avançada**: `audio-transaction-intake` (RF05), `ocr-receipt-intake` (RF08 OCR), `import-ofx-csv` (RF08 importação) com tela de reconciliação.
 5. **Fase 5 — Open Finance e notificações completas**: integração com agregador, push web completo, e-mail transacional, PWA offline/instalável polido.

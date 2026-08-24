@@ -13,6 +13,7 @@ O objetivo deste produto é oferecer uma aplicação intuitiva, completa e autom
   - Cadastro, edição e inativação de contas.
   - Definição de saldo inicial e moeda.
   - Atualização automática do saldo acumulado com base nas movimentações.
+  - Edição do saldo inicial a qualquer momento, com o saldo atual ajustado pela diferença (os lançamentos já registrados não são afetados).
 
 ### RF02. Gestão de Modos de Pagamento
 - **Descrição:** Permite cadastrar os meios utilizados para transacionar valores.
@@ -34,6 +35,8 @@ O objetivo deste produto é oferecer uma aplicação intuitiva, completa e autom
   - Resumo de receitas, despesas e saldo do mês vigente.
   - Gráficos de distribuição de gastos por categoria.
   - Atalhos para ações rápidas (novo lançamento, envio de áudio, leitura de comprovante).
+  - Detalhamento por clique: saldo consolidado abre o valor por conta; receitas e despesas do mês abrem o valor por categoria.
+  - Provisionamento do mês: projeção do saldo assumindo que todas as contas fixas serão pagas e que os orçamentos flexíveis atingirão 100% do limite definido.
 
 ### RF05. Lançamento por Comando de Áudio
 - **Descrição:** Registro inteligente de transações por voz.
@@ -51,7 +54,9 @@ O objetivo deste produto é oferecer uma aplicação intuitiva, completa e autom
 ### RF07. Gestão de Planejamento e Metas
 - **Descrição:** Controle orçamentário e acompanhamento de objetivos financeiros.
 - **Funcionalidades:**
-  - **Orçamentos:** Definição de teto de gastos por categoria com alertas ao atingir percentuais personalizáveis (ex: 80%, 100%).
+  - **Orçamentos flexíveis:** Definição de teto de gastos por categoria com alertas ao atingir percentuais personalizáveis (ex: 80%, 100%).
+  - **Contas fixas:** Orçamento do tipo "fixa" com descrição, categoria e dia de vencimento (ex: Aluguel, Internet) — várias contas fixas podem compartilhar a mesma categoria. Botão para marcar manualmente como paga. Alerta de vencimento (aviso alguns dias antes e aviso de atraso se o dia passar sem lançamento correspondente), independente do alerta por percentual.
+  - **Replicação manual de orçamento:** botão para copiar as contas fixas e orçamentos flexíveis de um mês para o outro sob demanda (sem geração automática); itens já existentes no mês de destino são ignorados, não duplicados.
   - **Metas:** Criação de metas de acúmulo de capital (ex: Reserva de Emergência) com indicador visual de progresso.
 
 ### RF08. Automação e Importação de Dados
@@ -81,6 +86,7 @@ O objetivo deste produto é oferecer uma aplicação intuitiva, completa e autom
   - Autenticação biométrica (Touch ID / Face ID / Fingerprint) e PIN.
   - Criptografia dos dados sensíveis do usuário.
   - Notificações push e e-mails de lembrete sobre contas a vencer e limites de orçamento.
+  - **Implementado nesta fase apenas o canal in-app**: sino de notificações no cabeçalho com contador de não lidas, histórico e marcação de leitura, alimentado pelos alertas de orçamento (80%/100%) e de vencimento de conta fixa. Push e e-mail permanecem para a Fase 5 (ver `SSD.md` §5).
 
 ---
 
