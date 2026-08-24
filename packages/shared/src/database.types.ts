@@ -84,7 +84,10 @@ export type Database = {
           alert_thresholds: number[]
           category_id: string
           created_at: string
+          description: string | null
+          due_day: number | null
           id: string
+          kind: Database["public"]["Enums"]["budget_kind"]
           limit_cents: number
           period_month: string
           updated_at: string
@@ -94,7 +97,10 @@ export type Database = {
           alert_thresholds?: number[]
           category_id: string
           created_at?: string
+          description?: string | null
+          due_day?: number | null
           id?: string
+          kind?: Database["public"]["Enums"]["budget_kind"]
           limit_cents: number
           period_month: string
           updated_at?: string
@@ -104,7 +110,10 @@ export type Database = {
           alert_thresholds?: number[]
           category_id?: string
           created_at?: string
+          description?: string | null
+          due_day?: number | null
           id?: string
+          kind?: Database["public"]["Enums"]["budget_kind"]
           limit_cents?: number
           period_month?: string
           updated_at?: string
@@ -828,6 +837,7 @@ export type Database = {
         Returns: string
       }
       fn_check_budget_alerts: { Args: never; Returns: undefined }
+      fn_check_fixed_bill_alerts: { Args: never; Returns: undefined }
       fn_close_due_invoices: { Args: never; Returns: undefined }
       fn_generate_recurring_transactions: { Args: never; Returns: undefined }
       get_or_create_card_invoice: {
@@ -847,6 +857,7 @@ export type Database = {
     }
     Enums: {
       account_type: "checking" | "savings" | "wallet" | "investment"
+      budget_kind: "flexible" | "fixed"
       card_invoice_status: "open" | "closed" | "paid" | "overdue"
       category_kind: "income" | "expense"
       goal_status: "active" | "completed" | "archived"
@@ -1001,6 +1012,7 @@ export const Constants = {
   public: {
     Enums: {
       account_type: ["checking", "savings", "wallet", "investment"],
+      budget_kind: ["flexible", "fixed"],
       card_invoice_status: ["open", "closed", "paid", "overdue"],
       category_kind: ["income", "expense"],
       goal_status: ["active", "completed", "archived"],

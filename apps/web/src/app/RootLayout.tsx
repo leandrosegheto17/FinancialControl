@@ -17,6 +17,7 @@ import { NavLink, Outlet } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { signOut } from "@/features/auth/api/auth";
 import { LockGate } from "@/features/auth/components/LockGate";
+import { NotificationsBell } from "@/features/notifications/components/NotificationsBell";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -75,9 +76,12 @@ export function RootLayout() {
       <div className="flex min-h-screen flex-col md:flex-row">
         <header className="flex items-center justify-between border-b border-border bg-card p-4 md:hidden">
           <p className="text-lg font-semibold">FinancialControl</p>
-          <Button variant="ghost" size="icon" aria-label="Abrir menu" onClick={() => setMobileNavOpen(true)}>
-            <Menu className="h-5 w-5" />
-          </Button>
+          <div className="flex items-center gap-1">
+            <NotificationsBell />
+            <Button variant="ghost" size="icon" aria-label="Abrir menu" onClick={() => setMobileNavOpen(true)}>
+              <Menu className="h-5 w-5" />
+            </Button>
+          </div>
         </header>
 
         {mobileNavOpen && (
@@ -102,7 +106,10 @@ export function RootLayout() {
         )}
 
         <aside className="hidden w-60 flex-col border-r border-border bg-card p-4 md:flex">
-          <p className="mb-6 px-2 text-lg font-semibold">FinancialControl</p>
+          <div className="mb-6 flex items-center justify-between px-2">
+            <p className="text-lg font-semibold">FinancialControl</p>
+            <NotificationsBell />
+          </div>
           <NavLinks />
           <SignOutButton />
         </aside>
