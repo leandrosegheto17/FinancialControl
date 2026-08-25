@@ -17,8 +17,11 @@ import { NavLink, Outlet } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { signOut } from "@/features/auth/api/auth";
 import { LockGate } from "@/features/auth/components/LockGate";
+import { useIdleLogout } from "@/features/auth/hooks/useIdleLogout";
 import { NotificationsBell } from "@/features/notifications/components/NotificationsBell";
 import { cn } from "@/lib/utils";
+
+const IDLE_LOGOUT_MS = 5 * 60 * 1000;
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
@@ -70,6 +73,7 @@ function SignOutButton() {
 
 export function RootLayout() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  useIdleLogout(IDLE_LOGOUT_MS);
 
   return (
     <LockGate>

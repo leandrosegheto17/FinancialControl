@@ -1,9 +1,11 @@
+import { Eye, EyeOff } from "lucide-react";
 import { useState } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatCents } from "@/lib/utils";
+import { useValuesVisibility } from "@/lib/stores/useValuesVisibility";
+import { formatCentsOrMask } from "@/lib/utils";
 import {
   currentMonth,
   useAccountBalances,
@@ -28,13 +30,23 @@ export function DashboardPage() {
   const { data: accountBalances } = useAccountBalances();
   const { data: incomeBreakdown } = useIncomeBreakdown(month);
   const [detailMetric, setDetailMetric] = useState<DetailMetric>(null);
+  const { hidden, toggle } = useValuesVisibility();
   const projectedBalanceCents = (summary?.income_cents ?? 0) - (provision?.total_cents ?? 0);
+  const fmt = (cents: number) => formatCentsOrMask(cents, hidden);
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
         <div className="flex gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={hidden ? "Mostrar valores" : "Ocultar valores"}
+            onClick={toggle}
+          >
+            {hidden ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+          </Button>
           <Button asChild>
             <Link to="/transactions">Novo lançamento</Link>
           </Button>
@@ -49,7 +61,7 @@ export function DashboardPage() {
           <CardHeader>
             <CardTitle className="text-sm text-muted-foreground">Saldo consolidado</CardTitle>
           </CardHeader>
-          <CardContent className="text-2xl font-semibold">{formatCents(balance ?? 0)}</CardContent>
+          <CardContent className="text-2xl font-semibold">{fmt(balance ?? 0)}</CardContent>
         </Card>
         <Card
           className="cursor-pointer transition-colors hover:bg-accent/50"
@@ -59,7 +71,7 @@ export function DashboardPage() {
             <CardTitle className="text-sm text-muted-foreground">Receitas do mês</CardTitle>
           </CardHeader>
           <CardContent className="text-2xl font-semibold text-emerald-600">
-            {formatCents(summary?.income_cents ?? 0)}
+            {fmt(summary?.income_cents ?? 0)}
           </CardContent>
         </Card>
         <Card
@@ -70,14 +82,14 @@ export function DashboardPage() {
             <CardTitle className="text-sm text-muted-foreground">Despesas do mês</CardTitle>
           </CardHeader>
           <CardContent className="text-2xl font-semibold text-destructive">
-            {formatCents(summary?.expense_cents ?? 0)}
+            {fmt(summary?.expense_cents ?? 0)}
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
             <CardTitle className="text-sm text-muted-foreground">Saldo do mês</CardTitle>
           </CardHeader>
-          <CardContent className="text-2xl font-semibold">{formatCents(summary?.balance_cents ?? 0)}</CardContent>
+          <CardContent className="text-2xl font-semibold">{fmt(summary?.balance_cents ?? 0)}</CardContent>
         </Card>
       </div>
 
@@ -86,6 +98,7 @@ export function DashboardPage() {
         onOpenChange={(open) => setDetailMetric(open ? "balance" : null)}
         title="Saldo consolidado por conta"
         emptyMessage="Nenhuma conta ativa."
+        hidden={hidden}
         rows={(accountBalances ?? []).map((a) => ({ id: a.id, label: a.name, amount_cents: a.current_balance_cents }))}
       />
       <MetricDetailDialog
@@ -93,6 +106,7 @@ export function DashboardPage() {
         onOpenChange={(open) => setDetailMetric(open ? "income" : null)}
         title="Receitas do mês por categoria"
         emptyMessage="Nenhuma receita registrada este mês."
+        hidden={hidden}
         rows={(incomeBreakdown ?? []).map((c) => ({
           id: c.category_id,
           label: c.category_name,
@@ -105,6 +119,7 @@ export function DashboardPage() {
         onOpenChange={(open) => setDetailMetric(open ? "expense" : null)}
         title="Despesas do mês por categoria"
         emptyMessage="Nenhuma despesa registrada este mês."
+        hidden={hidden}
         rows={(breakdown ?? []).map((c) => ({
           id: c.category_id,
           label: c.category_name,
@@ -125,19 +140,19 @@ export function DashboardPage() {
             <div className="grid gap-4 sm:grid-cols-3">
               <div>
                 <p className="text-sm text-muted-foreground">Contas fixas</p>
-                <p className="text-xl font-semibold">{formatCents(provision.fixed_cents)}</p>
+                <p className="text-xl font-semibold">{fmt(provision.fixed_cents)}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Orçamentos flexíveis (100%)</p>
-                <p className="text-xl font-semibold">{formatCents(provision.flexible_cents)}</p>
+                <p className="text-xl font-semibold">{fmt(provision.flexible_cents)}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total provisionado</p>
-                <p className="text-xl font-semibold">{formatCents(provision.total_cents)}</p>
+                <p className="text-xl font-semibold">{fmt(provision.total_cents)}</p>
               </div>
             </div>
             <p className={`text-sm ${projectedBalanceCents < 0 ? "text-destructive" : "text-muted-foreground"}`}>
-              Saldo projetado do mês (receitas − provisionado): {formatCents(projectedBalanceCents)}
+              Saldo projetado do mês (receitas − provisionado): {fmt(projectedBalanceCents)}
             </p>
           </CardContent>
         </Card>
@@ -159,7 +174,7 @@ export function DashboardPage() {
                       <Cell key={entry.category_id} fill={entry.category_color ?? FALLBACK_COLORS[i % FALLBACK_COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(value: number) => formatCents(value)} />
+                  <Tooltip formatter={(value: number) => fmt(value)} />
                 </PieChart>
               </ResponsiveContainer>
             </div>

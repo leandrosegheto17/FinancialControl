@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link } from "react-router-dom";
 import { z } from "zod";
@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { sendMagicLink, signInWithPassword } from "../api/auth";
+import { IDLE_LOGOUT_REASON_KEY } from "../hooks/useIdleLogout";
 
 const schema = z.object({
   email: z.string().email("E-mail inválido"),
@@ -18,6 +19,15 @@ type FormValues = z.infer<typeof schema>;
 export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [magicLinkSent, setMagicLinkSent] = useState(false);
+  const [idleLogoutNotice, setIdleLogoutNotice] = useState(false);
+
+  useEffect(() => {
+    if (sessionStorage.getItem(IDLE_LOGOUT_REASON_KEY) === "idle") {
+      setIdleLogoutNotice(true);
+      sessionStorage.removeItem(IDLE_LOGOUT_REASON_KEY);
+    }
+  }, []);
+
   const {
     register,
     handleSubmit,
@@ -57,6 +67,11 @@ export function LoginPage() {
           <CardDescription>Acesse sua conta FinancialControl.</CardDescription>
         </CardHeader>
         <CardContent>
+          {idleLogoutNotice && (
+            <p className="mb-4 rounded-md bg-amber-100 px-3 py-2 text-sm text-amber-800">
+              Sessão expirada por inatividade. Faça login novamente.
+            </p>
+          )}
           <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="email">E-mail</Label>

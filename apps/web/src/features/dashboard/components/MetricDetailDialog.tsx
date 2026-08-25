@@ -1,5 +1,5 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { formatCents } from "@/lib/utils";
+import { formatCentsOrMask } from "@/lib/utils";
 
 export interface MetricDetailRow {
   id: string;
@@ -14,12 +14,14 @@ export function MetricDetailDialog({
   title,
   rows,
   emptyMessage,
+  hidden = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
   rows: MetricDetailRow[];
   emptyMessage: string;
+  hidden?: boolean;
 }) {
   const total = rows.reduce((sum, r) => sum + r.amount_cents, 0);
 
@@ -41,12 +43,12 @@ export function MetricDetailDialog({
                   )}
                   {row.label}
                 </span>
-                <span className="font-medium">{formatCents(row.amount_cents)}</span>
+                <span className="font-medium">{formatCentsOrMask(row.amount_cents, hidden)}</span>
               </div>
             ))}
             <div className="mt-2 flex items-center justify-between border-t border-border px-2 pt-2 text-sm font-semibold">
               <span>Total</span>
-              <span>{formatCents(total)}</span>
+              <span>{formatCentsOrMask(total, hidden)}</span>
             </div>
           </div>
         )}
